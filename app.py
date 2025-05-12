@@ -10,6 +10,7 @@ from dash.dependencies import Input, Output, State, ALL
 import plotly.graph_objs as go
 import pandas as pd
 import webview
+import sys
 
 from datetime import datetime
 import numpy as np
@@ -1451,8 +1452,7 @@ def check_for_folder_signal():
         time.sleep(0.5)
 
 if __name__ == '__main__':
-    dash_thread = threading.Thread(target=run_dash)
-    dash_thread.daemon = True
+    dash_thread = threading.Thread(target=run_dash, daemon=True)
     dash_thread.start()
     
     time.sleep(1)
@@ -1463,12 +1463,11 @@ if __name__ == '__main__':
         width=1200, height=700
     )
 
-    signal_thread = threading.Thread(target=check_for_folder_signal)
-    signal_thread.daemon = True
+    signal_thread = threading.Thread(target=check_for_folder_signal, daemon=True)
     signal_thread.start()
     
     webview.start()
-    os._exit(0)
+    sys.exit(0)
 
 
 
