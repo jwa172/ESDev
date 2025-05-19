@@ -29,3 +29,9 @@ Reusable code for:
 ### `dummyDataGenerator.ipynb`
 - A helper notebook to simulate sensor data for testing.
 - Useful for developing without actual hardware.
+
+<!-- Add screenshot of dashboard here -->
+
+
+![Dashboard Screenshot](./dashboard_current.png)
+
