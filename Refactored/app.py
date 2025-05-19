@@ -12,22 +12,12 @@ import webview
 from pathlib import Path
 
 # Local modules
+from layout.main_view import dashboard_layout
+from layout.historical_view import historical_data_layout
+
 from utils.constants import DEBUG, MAX_DATA_AGE_SECONDS, PUNCH_STICKING_COLUMNS
 from utils.data_loader import find_latest_csv, save_data_to_database
 from utils.debug import debug_print
-
-# class AppState:
-#     def __init__(self):
-#         self.df = None
-#         self.last_csv_file = None
-#         self.global_start_time = None
-#         self.last_file_size = 0
-#         self.last_row_count = 0
-#         self.last_db_save_time = 0
-#         self.current_folder = ""
-#         self.pywebview_window = None
-
-# app_state = AppState()
 
 # Configuration settings
 # # Initialize global variables
@@ -53,187 +43,17 @@ app.layout = html.Div([
     html.Div(id="dummy-output", style={"display": "none"})
 ])
 
-def dashboard_layout(folder_path=""):
-    folder_display = f"Data Source: {folder_path if folder_path else 'Not selected'}"
-    return html.Div([
-        html.Div([
-            html.Div("Production Monitoring System", className="app-title"),
-            html.Div([
-                html.Button("Choose Folder", id="folder-button", className="btn btn-outline-light btn-sm me-2"),
-                html.Button("Start Monitoring", id="toggle-button", n_clicks=0, className="btn btn-success btn-sm me-2"),
-                html.Button("Stop Monitoring", id="stop-button", n_clicks=0, className="btn btn-danger btn-sm"),
-                html.Button("Historical Data", id="history-button", className="btn btn-outline-light btn-sm me-2"),
-            ]),
-            html.Div(id="current-time", className="timestamp")
-        ], className="header-bar"),
-
-        html.Div([
-            dbc.Row([
-                dbc.Col([
-                    html.Div(id="selected-folder", className="text-light", children=[folder_display])
-                ], width=4),
-                dbc.Col([
-                    dbc.Row([
-                        dbc.Col([
-                            html.Label("Time Window:", className="text-light me-2"),
-                            dcc.Dropdown(
-                                id="time-window-input",
-                                options=[
-                                    {'label': '1 sec', 'value': 1000},
-                                    {'label': '10 sec', 'value': 10000},
-                                    {'label': '1 min', 'value': 60000},
-                                    {'label': '10 min', 'value': 600000},
-                                    {'label': '30 min', 'value': 1800000},
-                                ],
-                                value=1000,
-                                clearable=False,
-                                style={"width": "120px", "background-color": "#1f2937", "color": "white"},
-                                className="dropdown-dark"
-                            )
-                        ], width="auto"),
-                        dbc.Col([
-                            dbc.Checklist(
-                                id='show-tf-stats',
-                                options=[{'label': ' Show Stats', 'value': 'tfstats'}],
-                                value=['tfstats'],
-                                switch=True
-                            )
-                        ], width="auto")
-                    ], justify="end")
-                ], width=8)
-            ])
-        ], className="toolbar"),
-
-        html.Div([
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.Div("Pre-Compression Punch Stats", className="card-header"),
-                        html.Div([
-                            # Punch stats graph for pre-compression
-                            dcc.Graph(
-                                id="pre-compression-graph", 
-                                style={'height': '25vh'}, 
-                                config={'displayModeBar': False}
-                            ),
-                            html.Div(id="pre-compression-stats", className="small-stats")
-                        ], className="card-body")
-                    ], className="card")
-                ], width=4, className="grid-cell"),
-
-                dbc.Col([
-                    html.Div([
-                        html.Div("Compression Punch Stats", className="card-header"),
-                        html.Div([
-                            # Punch stats graph for compression
-                            dcc.Graph(
-                                id="compression-graph", 
-                                style={'height': '25vh'}, 
-                                config={'displayModeBar': False}
-                            ),
-                            html.Div(id="compression-stats", className="small-stats")
-                        ], className="card-body")
-                    ], className="card")
-                ], width=4, className="grid-cell"),
-
-                dbc.Col([
-                    html.Div([
-                        html.Div("Ejection Punch Stats", className="card-header"),
-                        html.Div([
-                            # Punch stats graph for ejection
-                            dcc.Graph(
-                                id="ejection-graph", 
-                                style={'height': '25vh'}, 
-                                config={'displayModeBar': False}
-                            ),
-                            html.Div(id="ejection-stats", className="small-stats")
-                        ], className="card-body")
-                    ], className="card")
-                ], width=4, className="grid-cell"),
-            ]),
-
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.Div("Punch Status", className="card-header"),
-                        html.Div([
-                            html.Div([
-                                html.Span(id=f"punch-status-{i}", className="status-badge badge-normal", 
-                                         children=[f"Punch {i}"]) for i in range(1, 9)
-                            ], className="d-flex flex-wrap justify-content-between"),
-                            html.Div(id="punch-status-indicator", className="small-stats mt-2")
-                        ], className="card-body process-status-area")
-                    ], className="card")
-                ], width=12, className="grid-cell"),
-            ]),
-
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.Div("Load Cell Forces", className="card-header"),
-                        html.Div([
-                            dcc.Graph(id='live-graph', style={'height': '40vh'}, config={'displayModeBar': False})
-                        ], className="card-body")
-                    ], className="card")
-                ], width=12, className="grid-cell"),
-            ])
-        ], className="dashboard-container"),
-    ])
-
-def historical_data_layout():
-    # Find all archive files
-    archive_files = []
-    if current_folder and os.path.exists(os.path.join(current_folder, "data_archive")):
-        archive_files = sorted(glob.glob(os.path.join(current_folder, "data_archive", "*.csv")), reverse=True)
-    
-    return html.Div([
-        html.Div([
-            html.Div("Historical Data Viewer", className="app-title"),
-            dcc.Link("Back to Dashboard", href="/", className="btn btn-outline-light btn-sm"),
-            html.Div(id="history-current-time", className="timestamp")
-        ], className="header-bar"),
-        html.Div([
-            dbc.Row([
-                dbc.Col([
-                    html.Label("Select Archive File:", className="text-light mb-2"),
-                    dcc.Dropdown(
-                        id='archive-file-selector',
-                        options=[{'label': os.path.basename(f), 'value': f} for f in archive_files],
-                        value=archive_files[0] if archive_files else None,
-                        clearable=False,
-                        className="dropdown-dark mb-3"
-                    ),
-                ], width=6),
-                dbc.Col([
-                    html.Label("Time Window:", className="text-light mb-2"),
-                    dcc.Dropdown(
-                        id="history-time-window",
-                        options=[
-                            {'label': 'All Data', 'value': 0},
-                            {'label': '1 min', 'value': 60},
-                            {'label': '5 min', 'value': 300},
-                            {'label': '10 min', 'value': 600},
-                            {'label': '30 min', 'value': 1800},
-                        ],
-                        value=0,
-                        clearable=False,
-                        className="dropdown-dark mb-3"
-                    ),
-                ], width=6),
-            ]),
-            dcc.Graph(id="historical-data-graph", style={'height': '70vh'}, config={'displayModeBar': False})
-        ], className="dashboard-container")
-    ])
-
-@app.callback(Output('page-content', 'children'),
-              [Input('url', 'pathname')],
-              [State('folder-path', 'data')])
-def display_page(pathname, folder_path):
+@app.callback(
+    Output('page-content', 'children'),
+    Input('url', 'pathname'),
+    State('folder-path', 'data'),
+)
+def render_page(pathname, folder_path):
     global current_folder
     current_folder = folder_path
 
     if pathname == '/history':
-        return historical_data_layout()
+        return historical_data_layout(folder_path)
     else:
         return dashboard_layout(folder_path)
 
@@ -1193,6 +1013,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
                 default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
                 *punch_texts, *punch_classes)
 
+# This function was not used in the final code
 # def find_latest_data_folder(base_dir):
 #     date_folders = sorted(glob.glob(os.path.join(base_dir, "*")), reverse=True)
 #     if not date_folders:
@@ -1258,7 +1079,6 @@ def choose_folder(n_clicks, current_folder):
     
     return current_folder
     
-
 @app.callback(
     Output("selected-folder", "children"),
     [Input("folder-path", "data")]
@@ -1339,6 +1159,3 @@ if __name__ == '__main__':
     
     webview.start()
     sys.exit(0)
-
-
-
