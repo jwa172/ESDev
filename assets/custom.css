@@ -1,0 +1,194 @@
+body {
+    background-color: #111111;
+    color: #f8f9fa;
+    margin: 5px;
+    padding: 5px;
+}
+
+.dashboard-container {
+    padding: 5px;
+}
+
+.card {
+    background-color: #1f2937;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    margin-bottom: 5px;
+}
+
+.card-header {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-bottom: 1px solid #2d3748;
+    background-color: #1a202c;
+}
+
+.card-body {
+    padding: 6px 8px;
+}
+
+.grid-cell {
+    padding: 3px;
+}
+
+.value-display {
+    font-size: 24px;
+    font-weight: 500;
+    text-align: center;
+    margin-top: 5px;
+}
+
+.indicator-normal {
+    color: #10b981;
+}
+
+.indicator-danger {
+    color: #ef4444;
+}
+
+.status-badge {
+    padding: 5px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    font-weight: 600;
+    margin-right: 3px;
+    margin-bottom: 5px;
+    font-size: 18px;
+}
+
+.badge-normal {
+    background-color: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+.badge-danger {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.badge-warning {
+    background-color: rgba(255, 193, 7, 0.2);
+    color: #ffc107;
+}
+
+.badge-orange {
+    background-color: rgba(255, 140, 0, 0.2);
+    color: #ff8c00;
+}
+
+.header-bar {
+    background-color: #1a202c;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.app-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-right: 15px;
+}
+
+.timestamp {
+    margin-left: auto;
+    font-size: 12px;
+    color: #d1d5db;
+}
+
+.toolbar {
+    background-color: #0f172a;
+    padding: 8px;
+    border-bottom: 1px solid #2d3748;
+}
+
+.small-stats {
+    font-size: 10px;
+    margin-top: 3px;
+    color: #d1d5db;
+}
+
+.process-status-area {
+    font-size: 18px;
+    padding: 10px;
+}
+
+.force-button {
+    margin-top: 5px;
+    width: 100%;
+}
+
+/* Dropdown styling (legacy Dash versions) */
+.dropdown-dark .Select-control {
+    background-color: #1f2937;
+    border-color: #374151;
+    color: white;
+}
+
+.dropdown-dark .Select-menu-outer {
+    background-color: #1f2937;
+    border-color: #374151;
+}
+
+.dropdown-dark .Select-option {
+    background-color: #1f2937;
+    color: white;
+}
+
+.dropdown-dark .Select-option.is-selected {
+    background-color: #2d3748;
+}
+
+.dropdown-dark .Select-option.is-focused {
+    background-color: #374151;
+}
+
+.dropdown-dark .Select-value-label {
+    color: white !important;
+}
+
+.dropdown-dark .Select-arrow {
+    border-color: white transparent transparent;
+}
+
+/* Dropdown styling (modern Dash versions) */
+.dropdown-dark .Select__control {
+    background-color: #1f2937;
+    border-color: #374151;
+}
+
+.dropdown-dark .Select__menu {
+    background-color: #1f2937;
+}
+
+.dropdown-dark .Select__option {
+    background-color: #1f2937;
+    color: white;
+}
+
+.dropdown-dark .Select__option--is-selected {
+    background-color: #2d3748;
+}
+
+.dropdown-dark .Select__option--is-focused {
+    background-color: #374151;
+}
+
+.dropdown-dark .Select__single-value {
+    color: white;
+}
+
+.dropdown-dark .Select__indicator {
+    color: white;
+}
+
+/* For specific Dash dropdown IDs */
+#time-window-input .VirtualizedSelectOption {
+    background-color: #1f2937;
+    color: white;
+}
+
+#time-window-input .VirtualizedSelectFocusedOption {
+    background-color: #374151;
+}
