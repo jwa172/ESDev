@@ -1155,12 +1155,14 @@ if __name__ == '__main__':
     dash_thread.start()
     
     time.sleep(1)
+
     
     pywebview_window = webview.create_window(
         "Production Monitoring Dashboard",
         "http://127.0.0.1:8050",
-        width=1200, height=700
+        width=1200, height=1000
     )
+    # I dont want to scroll
 
     signal_thread = threading.Thread(target=check_for_folder_signal, daemon=True)
     signal_thread.start()

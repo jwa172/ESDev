@@ -34,6 +34,4 @@ Reusable code for:
 
 <!-- Add screenshot of dashboard here -->
 
-![Dashboard Screenshot](./dashboard_current.png)
-
-`dummySerialAndDataAcqui.ipynb` generates real-time dummy data.
+![Dashboard Video](./puncher.mp4)

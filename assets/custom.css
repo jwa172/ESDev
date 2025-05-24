@@ -3,7 +3,9 @@ body {
     color: #f8f9fa;
     margin: 5px;
     padding: 5px;
+    height: 100%;
 }
+
 
 .dashboard-container {
     padding: 5px;
