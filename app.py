@@ -226,8 +226,9 @@ def update_clock(n):
     return f"Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
 # Function to generate punch stats figure
-def generate_punch_stats_figure(force_type, data_df):
-    config_map = {
+def generate_punch_stats_figure(force_type: str, data_df: pd.DataFrame) -> go.Figure:
+
+    CONFIG = {
         "pre_compression": {
             "punch_cols": ["precomppunchno"],
             "force_cols": ["pre_compression_force"],
@@ -245,39 +246,34 @@ def generate_punch_stats_figure(force_type, data_df):
         }
     }
     
-    default_figure = {
-        'data': [],
-        'layout': {
-            'title': "No data available",
-            'plot_bgcolor': '#1f2937',
-            'paper_bgcolor': '#1f2937',
-            'font': {'color': '#d1d5db'},
-            'xaxis': {
-                'title': 'Punch Number',
-                'showgrid': True,
-                'gridcolor': 'rgba(255,255,255,0.1)'
-            },
-            'yaxis': {
-                'title': 'Force (N)',
-                'showgrid': True,
-                'gridcolor': 'rgba(255,255,255,0.1)'
-            },
-            'margin': {'l': 40, 'r': 10, 't': 30, 'b': 30}
-        }
-    }
-    
-    if force_type not in config_map or data_df.empty:
-        return default_figure
+    # Default figure if no data or force type is invalid
+    def default_figure(title="No data available"):
+        return go.Figure(
+            layout=go.Layout(
+                title=title,
+                plot_bgcolor="#1f2937",
+                paper_bgcolor="#1f2937",
+                font=dict(color="#d1d5db"),
+                xaxis=dict(title="Punch Number", showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+                yaxis=dict(title="Force (N)", showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+                margin=dict(l=40, r=10, t=30, b=30),
+            )
+        )
 
-    punch_cols = config_map[force_type]["punch_cols"]
-    force_cols = config_map[force_type]["force_cols"]
-    title = config_map[force_type]["title"]
-    
+    if force_type not in CONFIG or data_df.empty:
+        return default_figure()
+
+    # Get the punch columns and force columns based on the force type
+    config = CONFIG[force_type]
+    punch_cols, force_cols, title = config["punch_cols"], config["force_cols"], config["title"]
+
     punch_forces = {p: [] for p in range(1,9)}
     
     try:
-        for idx, row in data_df.iterrows():
+        for _, row in data_df.iterrows():
+
             row_forces = [float(row[col]) for col in force_cols if col in row and pd.notna(row[col])]
+            # row_forces = [pd.numeric(row.get(col), errors='coerce') for col in force_cols]
             
             if not row_forces:
                 continue
@@ -307,13 +303,15 @@ def generate_punch_stats_figure(force_type, data_df):
             
             for punch in combined_punches:
                 punch_forces.setdefault(punch, []).append(row_force)
+
     except Exception as e:
         debug_print(f"Error collecting punch force data: {str(e)}")
-        return default_figure
+        return default_figure()
 
     punch_numbers = sorted([p for p in punch_forces.keys() if 1 <= p <= 8])
+
     if not punch_numbers:
-        return default_figure
+        return default_figure()
     
     max_avg_forces = []
     max_forces = []
@@ -431,6 +429,7 @@ def generate_punch_stats_figure(force_type, data_df):
             font=dict(size=10)  
         )
     )
+
     return go.Figure(data=[base_bar, top_bar], layout=layout)
 
 @app.callback(
@@ -467,6 +466,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
         'precompression': 'pre_compression_force',
     }
     
+    ######## Default values for the graphs and stats ########
     default_figure = {
         'data': [],
         'layout': {
@@ -487,7 +487,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
             'hovermode': 'closest'
         }
     }
-    
+
     default_stats = "No data available"
     
     # Default empty punch stats figures
@@ -506,6 +506,8 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
     
     punch_texts = [f"Punch {i}" for i in range(1, 9)]
     punch_classes = ["status-badge badge-normal" for i in range(1, 9)]
+    #########################################################
+
 
     # Check if the folder is selected
     if not chosen_folder:
@@ -529,10 +531,12 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
         if file_changed:
             debug_print(f"Reading new CSV file: {latest_csv}")
             
+            #### Preprocessing steps ####
             try:
                 new_data = pd.read_csv(latest_csv, encoding='utf-8')
             except UnicodeDecodeError:
                 new_data = pd.read_csv(latest_csv, encoding='latin1')
+
             
             debug_print(f"CSV columns (original): {new_data.columns.tolist()}")
             
@@ -1155,14 +1159,12 @@ if __name__ == '__main__':
     dash_thread.start()
     
     time.sleep(1)
-
     
     pywebview_window = webview.create_window(
         "Production Monitoring Dashboard",
         "http://127.0.0.1:8050",
         width=1200, height=1000
     )
-    # I dont want to scroll
 
     signal_thread = threading.Thread(target=check_for_folder_signal, daemon=True)
     signal_thread.start()

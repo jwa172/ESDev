@@ -1,6 +1,6 @@
 # ESDev
 
-Real-time dashboard for monitoring the pressure data from the sensors using Dash and Plotly.
+Real-time dashboard for monitoring the punch force data from the tablet press sensors using Dash and Plotly.
 
 ![Dashboard Preview](./puncher.gif)
 
@@ -15,7 +15,6 @@ Real-time dashboard for monitoring the pressure data from the sensors using Dash
 Modular layout files:
 - `historical_view.py`: Historical force graph viewer.
 - `dashboard.py`: Real-time monitoring layout.
-- Allows clean separation of UI logic.
 
 ### `utils/`
 Reusable code for:
@@ -32,7 +31,6 @@ Reusable code for:
 
 ### `dummyDataGenerator.ipynb`
 - A helper notebook to simulate sensor data for testing.
-- Useful for developing without actual hardware.
 
 
 
