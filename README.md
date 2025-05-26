@@ -2,6 +2,8 @@
 
 Real-time dashboard for monitoring the pressure data from the sensors using Dash and Plotly.
 
+![Dashboard Preview](./puncher.gif)
+
 ## Key Components
 
 ### `app.py`
@@ -32,6 +34,5 @@ Reusable code for:
 - A helper notebook to simulate sensor data for testing.
 - Useful for developing without actual hardware.
 
-<!-- Add screenshot of dashboard here -->
 
-![Dashboard Preview](./puncher.gif)
+
