@@ -8,6 +8,7 @@ from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 import webview
+import json
 
 from pathlib import Path
 
@@ -40,8 +41,8 @@ app.layout = html.Div([
 
     # Store the latest punch data
     dcc.Store(id='punch-precomp-store', data={i: [] for i in range(1, 9)}),
-    # dcc.Store(id='punch-compr-store', data={i: [] for i in range(1, 9)}),
-    # dcc.Store(id='punch-eject-store', data={i: [] for i in range(1, 9)}),
+    dcc.Store(id='punch-compr-store', data={i: [] for i in range(1, 9)}),
+    dcc.Store(id='punch-eject-store', data={i: [] for i in range(1, 9)}),
 
     dcc.Interval(id='graph-update', interval=1000, n_intervals=0, disabled=False),
     dcc.Interval(id='clock-update', interval=1000, n_intervals=0),
@@ -232,216 +233,80 @@ def update_history_clock(n):
 def update_clock(n):
     return f"Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
-# Function to generate punch stats figure
-def generate_punch_stats_figure(force_type: str, data_df: pd.DataFrame) -> go.Figure:
 
-    CONFIG = {
-        "pre_compression": {
-            "punch_cols": ["precomppunchno"],
-            "force_cols": ["pre_compression_force"],
-            "title": "Force by Punch Number"
-        },
-        "compression": {
-            "punch_cols": ["compr1punchno", "compr2punchno"],
-            "force_cols": ["compression_force_1", "compression_force_2"],
-            "title": "Force by Punch Number"
-        },
-        "ejection": {
-            "punch_cols": ["ejectpunchno"],
-            "force_cols": ["ejection_force"],
-            "title": "Force by Punch Number"
-        }
+def parse_punch_data(df, force_type: str) -> dict:
+    """
+    Isolates each punch in the data and obtains the maximum force value for each punch type.
+    
+    Parameters:
+        df (pd.DataFrame): Input DataFrame containing time series punch force data.
+        force_type (str): One of ['precomp', 'compr', 'eject'] indicating punch type.
+    
+    Returns:
+        dict: Keys are punch numbers (1 to num_punches), values are lists of max force values
+              from contiguous non-zero punch segments.
+    """
+
+    ''' There are 3 types of punch force data:
+    1. PRECOMPRESSION: precompData, precompPunchNo
+    2. COMPRESSION: compr1Data, compr1PunchNo
+    3. EJECTION: ejectData, ejectPunchNo
+    '''
+
+    punch_map = {
+        'precomp': ('precompPunchNo', 'precompData'),
+        'compr': ('compr1PunchNo', 'compr1Data'),
+        'eject': ('ejectPunchNo', 'ejectData'),
     }
-    
-    # Default figure if no data or force type is invalid
-    def default_figure(title="No data available"):
-        return go.Figure(
-            layout=go.Layout(
-                title=title,
-                plot_bgcolor="#1f2937",
-                paper_bgcolor="#1f2937",
-                font=dict(color="#d1d5db"),
-                xaxis=dict(title="Punch Number", showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
-                yaxis=dict(title="Force (N)", showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
-                margin=dict(l=40, r=10, t=30, b=30),
-            )
-        )
 
-    if force_type not in CONFIG or data_df.empty:
-        return default_figure()
+    if force_type not in punch_map:
+        raise ValueError("Invalid punch type. Choose from 'precomp', 'compr', or 'eject'.")
 
-    # Get the punch columns and force columns based on the force type
-    config = CONFIG[force_type]
-    punch_cols, force_cols, title = config["punch_cols"], config["force_cols"], config["title"]
+    punch_no_col, force_data_col = punch_map[force_type]
+    df_selected = df[['timeStamp', punch_no_col, force_data_col]].copy()
 
-    punch_forces = {p: [] for p in range(1,9)}
-    
-    try:
-        for _, row in data_df.iterrows():
+    # Filter out zero punch numbers (inactive readings)
+    mask = df_selected[punch_no_col] != 0
+    group_id = (mask != mask.shift()).cumsum()
 
-            row_forces = [float(row[col]) for col in force_cols if col in row and pd.notna(row[col])]
-            # row_forces = [pd.numeric(row.get(col), errors='coerce') for col in force_cols]
-            
-            if not row_forces:
-                continue
-                
-            row_force = sum(row_forces) / len(row_forces)
-            
-            combined_punches = []
-            for pcol in punch_cols:
-                if pcol not in row or pd.isna(row[pcol]) or row[pcol] == "":
-                    continue    
-                try:
-                    punch_value = row[pcol]
-                    if isinstance(punch_value, str):
-                        for p in punch_value.split(","):
-                            p = p.strip()
-                            if p and p.isdigit():
-                                punch_num = int(p)
-                                # Only include punch numbers 1-8, skip zeros
-                                if 1 <= punch_num <= 8:
-                                    combined_punches.append(punch_num)
-
-                    else:  # Handle numeric values directly
-                        punch_num = int(punch_value)
-                        if 1 <= punch_num <= 8:  # Skip zeros and validate range
-                            combined_punches.append(punch_num)
-                except Exception as e:
-                    debug_print(f"Error parsing punch number from {row[pcol]}: {str(e)}")
-            
-            for punch in combined_punches:
-                punch_forces.setdefault(punch, []).append(row_force)
-
-    except Exception as e:
-        debug_print(f"Error collecting punch force data: {str(e)}")
-        return default_figure()
-
-    punch_numbers = sorted([p for p in punch_forces.keys() if 1 <= p <= 8])
-
-    if not punch_numbers:
-        return default_figure()
-    
-    max_avg_forces = []
-    max_forces = []
-    
-    window_size = 5
-
-    for p in punch_numbers:
-        values = punch_forces[p]
+    # maybe TODO Add noise filtering for short-duration segments if needed
         
-        if values:
-            # Maximum instantaneous force
-            max_val = max(values)
-            max_forces.append(max_val)
-            
-            # Calculate maximum moving average
-            if len(values) >= window_size:
-                # Calculate moving averages with window_size
-                moving_avgs = []
-                for i in range(len(values) - window_size + 1):
-                    window_avg = sum(values[i:i+window_size]) / window_size
-                    moving_avgs.append(window_avg)
-                
-                max_avg = max(moving_avgs)
-            else:
-                # If not enough data points, use regular average
-                max_avg = sum(values) / len(values)
-                
-            max_avg_forces.append(max_avg)
-        else:
-            max_forces.append(0)
-            max_avg_forces.append(0)
+    # Group by consecutive non-zero blocks and calculate the max
+    non_zero_groups = df_selected[mask].groupby(group_id[mask]).max()
 
-    x_labels = [str(p) for p in punch_numbers]
+    # Reset grouping index and create a dictionary that contains the max values
+    non_zero_groups = non_zero_groups.reset_index(drop=True)
 
-    max_diff = []
-    for max_val, max_avg in zip(max_forces, max_avg_forces):
-        diff = max(0, max_val - max_avg)  # Ensure no negative differences
-        max_diff.append(diff)
+    # Create a dictionary with 'precomppunchno' as keys and lists of 'precompdata' as values
+    max_dict = non_zero_groups.groupby(punch_no_col)[force_data_col].apply(list).to_dict()
 
-    # Set color based on force type
-    colors = {
-        "pre_compression": '#E91E63',  # Pink
-        "compression": '#1E88E5',      # Blue
-        "ejection": '#4CAF50',         # Green
-    }
+    # Add in missing keys with empty lists
+    max_dict = {i: max_dict.get(i, []) for i in range(1, 9)}
+
+    return max_dict
+
+
+def update_stats_store(old_stats: dict, addendum: dict, k=3) -> dict:
+    """
+    Updates the stats store with new data, keeping at most the last `k` entries per key.
+
+    Parameters:
+        old_stats (dict): Existing stats dictionary with keys as strings '1' to '8'.
+        addendum (dict): New stats to add with keys as strings '1' to '8'.
+        k (int): Maximum number of entries to keep per key. Default is 3.
+
+    Returns:
+        dict: Updated stats dictionary with at most `k` entries per key.
     
-    base_color = colors.get(force_type, '#38B2AC')  # Default to teal if not found
-
-    # Create text labels with reduced precision for cleaner display
-    avg_text = [f"{avg:.0f}" for avg in max_avg_forces]
-    max_text = [f"{max_val:.0f}" for max_val in max_forces]
-
-    base_bar = go.Bar(
-        x=x_labels, 
-        y=max_avg_forces, 
-        text=avg_text,
-        textposition='auto',
-        name="Avg",
-        marker=dict(color=base_color),
-        hovertemplate="Punch %{x}<br>Avg: %{y:.1f} N<extra></extra>"
-    )
-
-    top_bar = go.Bar(
-        x=x_labels, 
-        y=max_diff, 
-        text=max_text,
-        textposition='outside',
-        name="Max",
-        marker=dict(color='#F59E0B'),  # Amber color
-        hovertemplate="Punch %{x}<br>Max: %{customdata:.1f} N<extra></extra>",
-        customdata=max_forces,  
-    )
-
-    layout = go.Layout(
-        title=dict(
-            text=title,
-            font=dict(size=10)  
-        ),
-        xaxis=dict(
-            title=dict(
-                text="Punch Number",
-                font=dict(size=10),  
-                standoff=5, 
-            ),
-            showgrid=True,
-            gridcolor='rgba(255,255,255,0.1)',
-            categoryorder='array',
-            categoryarray=x_labels
-        ),
-        yaxis=dict(
-            title=dict(
-                text="Force (N)",
-                font=dict(size=10),  
-                standoff=5,  
-            ),
-            showgrid=True,
-            gridcolor='rgba(255,255,255,0.1)',
-            range=[0, max(max(max_forces) * 1.25, 1)] 
-        ),
-        plot_bgcolor='#1f2937',
-        paper_bgcolor='#1f2937',
-        font=dict(color='#d1d5db'),
-        barmode='stack',
-        uniformtext=dict(
-            mode='hide',
-            minsize=8
-        ),
-        margin=dict(l=40, r=10, t=40, b=25),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            font=dict(size=10)  
-        )
-    )
-
-    return go.Figure(data=[base_bar, top_bar], layout=layout)
+    NOTE: The keys in `old_stats` are strings as dcc store serializes these as JSON.
+    """
+    return {
+        i: (old_stats.get(str(i), []) + addendum.get(i, []))[-k:]
+        for i in range(1, 9)
+    }
 
 
-def generate_punch_figure(stats: dict, force_type: str) -> go.Figure:
+def generate_punch_figure(force_dict: dict, force_type: str) -> go.Figure:
     """
     Generates a bar figure for punch statistics.
     
@@ -452,6 +317,15 @@ def generate_punch_figure(stats: dict, force_type: str) -> go.Figure:
     Returns:
         go.Figure: Plotly figure object.
     """
+
+    # Returns mapping of punch number -> (most_recent, avg) or (0, 0) if no data exists.
+    def get_punch_stats(force_dict: dict) -> dict:
+        return {
+            punch: (int(values[-1]), int(np.mean(values))) if values else (0, 0)
+            for punch, values in force_dict.items()
+        }
+
+    stats = get_punch_stats(force_dict)
 
     def default_figure(title="No data available"):
         return go.Figure(
@@ -492,9 +366,9 @@ def generate_punch_figure(stats: dict, force_type: str) -> go.Figure:
     avg_bar = go.Bar(
         x=x_labels, 
         y=avg_force, 
-        text=[f"{f:.0f}" for f in avg_force],
-        textposition='outside',
-        name="Avg of recent",
+        # text=[f"{f:.0f}" for f in avg_force],
+        # textposition='auto',
+        name="Avg",
         marker=dict(color=base_color),
         hovertemplate="Punch %{x}<br>Avg: %{y:.1f} N<extra></extra>"
     )
@@ -505,10 +379,10 @@ def generate_punch_figure(stats: dict, force_type: str) -> go.Figure:
         y=prev_force, 
         text=[f"{f:.0f}" for f in prev_force],
         textposition='outside',
-        name="Max of recent",
+        # textfont=dict(size=8, color='#F59E0B'),
+        name="Last max",
         marker=dict(color='#F59E0B'),  # Amber color
-        hovertemplate="Punch %{x}<br>Max: %{customdata:.1f} N<extra></extra>",
-        customdata=avg_force,  
+        hovertemplate="Punch %{x}<br>Max: %{y:.1f} N<extra></extra>",
     )
 
     # Create layout for the figure
@@ -559,25 +433,30 @@ def generate_punch_figure(stats: dict, force_type: str) -> go.Figure:
 
     return go.Figure(data=[avg_bar, prev_bar], layout=layout)
 
+
 @app.callback(
     Output('live-graph', 'figure'),
-     Output('punch-status-indicator', 'children'),
-     Output('pre-compression-stats', 'children'),
-     Output('compression-stats', 'children'),
-     Output('ejection-stats', 'children'),
-     Output('pre-compression-graph', 'figure'),
-     Output('compression-graph', 'figure'),
-     Output('ejection-graph', 'figure'),
-     Output('punch-precomp-store', 'data'),
-     *[Output(f'punch-status-{i}', 'children') for i in range(1, 9)],
-     *[Output(f'punch-status-{i}', 'className') for i in range(1, 9)],
+    Output('punch-status-indicator', 'children'),
+    Output('pre-compression-stats', 'children'),
+    Output('compression-stats', 'children'),
+    Output('ejection-stats', 'children'),
+    Output('pre-compression-graph', 'figure'),
+    Output('compression-graph', 'figure'),
+    Output('ejection-graph', 'figure'),
+    Output('punch-precomp-store', 'data'),
+    Output('punch-compr-store', 'data'),
+    Output('punch-eject-store', 'data'),
+    *[Output(f'punch-status-{i}', 'children') for i in range(1, 9)],
+    *[Output(f'punch-status-{i}', 'className') for i in range(1, 9)],
     Input('graph-update', 'n_intervals'),
     Input('time-window-input', 'value'),
     Input('show-tf-stats', 'value'),
     State('folder-path', 'data'),
     State('punch-precomp-store', 'data'),
+    State('punch-compr-store', 'data'),
+    State('punch-eject-store', 'data'),
 )
-def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_precomp_store):
+def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precomp_data, compr_data, eject_data):
     global df, last_db_save_time, last_csv_file, global_start_time, last_file_size, last_row_count
 
     force_columns = {
@@ -637,12 +516,12 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
     punch_classes = ["status-badge badge-normal" for i in range(1, 9)]
     #########################################################
 
-
     # Check if the folder is selected
     if not chosen_folder:
         return (default_figure, "No folder selected. Please choose a folder first.",
                 default_stats, default_stats, default_stats,
                 default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
+                precomp_data, compr_data, eject_data,
                 *punch_texts, *punch_classes)
 
     # Find the latest CSV file in the selected folder
@@ -651,6 +530,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
         return (default_figure, "No CSV files found in the selected folder.",
                 default_stats, default_stats, default_stats,
                 default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
+                precomp_data, compr_data, eject_data,
                 *punch_texts, *punch_classes)
 
     current_file_size = os.path.getsize(latest_csv)
@@ -665,10 +545,20 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
                 new_data = pd.read_csv(latest_csv, encoding='utf-8')
             except UnicodeDecodeError:
                 new_data = pd.read_csv(latest_csv, encoding='latin1')
+            
+            # Parses and updates the pre-compression punch data
+            precomp_maxes = parse_punch_data(new_data, 'precomp')
+            precomp_data = update_stats_store(precomp_data, precomp_maxes)
+
+            compr_maxes = parse_punch_data(new_data, 'compr')
+            compr_data = update_stats_store(compr_data, compr_maxes)
+
+            eject_maxes = parse_punch_data(new_data, 'eject')
+            eject_data = update_stats_store(eject_data, eject_maxes)
 
             
+            # Preprocess the new data columns
             debug_print(f"CSV columns (original): {new_data.columns.tolist()}")
-            
             new_data.columns = new_data.columns.str.lower().str.strip()
             debug_print(f"CSV columns (lowercase): {new_data.columns.tolist()}")
             
@@ -782,6 +672,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
         return (default_figure, f"Error reading CSV: {str(e)}",
                 default_stats, default_stats, default_stats,
                 default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
+                precomp_data, compr_data, eject_data,
                 *punch_texts, *punch_classes)
 
     try:
@@ -790,6 +681,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
             return (default_figure, "No data loaded.",
                     default_stats, default_stats, default_stats,
                     default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
+                    precomp_data, compr_data, eject_data,
                     *punch_texts, *punch_classes)
         
         required_cols = ['relative_time', 'compression_force_1', 'compression_force_2', 'ejection_force', 'pre_compression_force']
@@ -799,6 +691,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
             return (default_figure, f"Missing columns: {', '.join(missing_cols)}",
                     default_stats, default_stats, default_stats,
                     default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
+                    precomp_data, compr_data, eject_data,
                     *punch_texts, *punch_classes)
         
         latest_time = df['relative_time'].max()
@@ -860,6 +753,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
             return (default_figure, "No data in selected time window.",
                     default_stats, default_stats, default_stats,
                     default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
+                    precomp_data, compr_data, eject_data,
                     *punch_texts, *punch_classes)
             
         if len(window_df) > 200:  # Reduce points for plotting
@@ -1022,7 +916,6 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
         for trace in main_figure['data']:
             trace.update(hovertemplate='Time: %{x:.3f}s<br>Force: %{y:.2f}N<extra></extra>')
     
-        
         def calculate_max_avg(series, window_size=5):
             if len(series) < window_size:
                 return series.mean()
@@ -1055,9 +948,9 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
             pre_comp_stats = comp_stats = eject_stats = "Stats hidden"
 
         # Create the punch stats figures
-        pre_compression_graph = generate_punch_stats_figure("pre_compression", df)
-        compression_graph = generate_punch_stats_figure("compression", df)
-        ejection_graph = generate_punch_stats_figure("ejection", df)
+        pre_compression_graph = generate_punch_figure(precomp_data, 'precomp')
+        compression_graph = generate_punch_figure(compr_data, 'compr')
+        ejection_graph = generate_punch_figure(eject_data, 'eject')
 
         try:
             sticking_color_classes = {
@@ -1143,6 +1036,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
                 "Data loaded successfully.",
                 pre_comp_stats, comp_stats, eject_stats,
                 pre_compression_graph, compression_graph, ejection_graph,
+                precomp_data, compr_data, eject_data,
                 *punch_texts, *punch_classes)
                 
     except Exception as e:
@@ -1155,27 +1049,10 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_
                 default_punch_stats_figure, default_punch_stats_figure, default_punch_stats_figure,
                 *punch_texts, *punch_classes)
 
-# This function was not used in the final code
-# def find_latest_data_folder(base_dir):
-#     date_folders = sorted(glob.glob(os.path.join(base_dir, "*")), reverse=True)
-#     if not date_folders:
-#         if glob.glob(os.path.join(base_dir, "*.csv")):
-#             return base_dir
-#         return None
-        
-#     for date_folder in date_folders:
-#         if os.path.isdir(date_folder):
-#             time_folders = sorted(glob.glob(os.path.join(date_folder, "*")), reverse=True)
-#             if time_folders:
-#                 for folder in time_folders:
-#                     if os.path.isdir(folder):
-#                         return folder
-#     return None
-
 @app.callback(
     Output("folder-path", "data"),
-    [Input("folder-button", "n_clicks")],
-    [State("folder-path", "data")],
+    Input("folder-button", "n_clicks"),
+    State("folder-path", "data"),
     prevent_initial_call=True
 )
 def choose_folder(n_clicks, current_folder):

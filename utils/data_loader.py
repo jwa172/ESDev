@@ -6,31 +6,15 @@ import time
 from .constants import DB_SAVE_INTERVAL, DEBUG
 
 def find_latest_csv(base_dir):
-    """
-    Finds the latest CSV file in the given directory and subdirectories.
-
-    Parameters
-    ----------
-    base_dir : str
-        The base directory to search for CSV files.
-
-    Returns
-    -------
-    str
-        The path to the latest CSV file, or None if no files are found.
-    """
     base_path = Path(base_dir)
-
-    # Recursively glob all CSV files in dir + subdirs
-    csv_files = base_path.rglob('*.csv')
-
+    csv_files = [
+        f for f in base_path.rglob('*.csv')
+        if 'data_archive' not in str(f).lower() # Exclude 'data_archive' files
+    ]
     try:
-        # Get the most recent file based on modification time
         latest_file = max(csv_files, key=os.path.getmtime)
         return str(latest_file)
-
     except ValueError:
-        # Raised by max() if no files are found
         return None
 
 
