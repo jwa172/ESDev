@@ -15,6 +15,7 @@ from pathlib import Path
 from utils.constants import DEBUG, MAX_DATA_AGE_SECONDS, PUNCH_STICKING_COLUMNS
 from utils.data_loader import find_latest_csv, save_data_to_database
 from utils.debug import debug_print
+
 from layout.main_view import dashboard_layout
 from layout.historical_view import historical_data_layout
 
@@ -36,6 +37,12 @@ app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id="folder-path", data=""),
     dcc.Store(id="selected-force", data=""),
+
+    # Store the latest punch data
+    dcc.Store(id='punch-precomp-store', data={i: [] for i in range(1, 9)}),
+    # dcc.Store(id='punch-compr-store', data={i: [] for i in range(1, 9)}),
+    # dcc.Store(id='punch-eject-store', data={i: [] for i in range(1, 9)}),
+
     dcc.Interval(id='graph-update', interval=1000, n_intervals=0, disabled=False),
     dcc.Interval(id='clock-update', interval=1000, n_intervals=0),
     html.Div(id='page-content'),
@@ -294,6 +301,7 @@ def generate_punch_stats_figure(force_type: str, data_df: pd.DataFrame) -> go.Fi
                                 # Only include punch numbers 1-8, skip zeros
                                 if 1 <= punch_num <= 8:
                                     combined_punches.append(punch_num)
+
                     else:  # Handle numeric values directly
                         punch_num = int(punch_value)
                         if 1 <= punch_num <= 8:  # Skip zeros and validate range
@@ -432,8 +440,127 @@ def generate_punch_stats_figure(force_type: str, data_df: pd.DataFrame) -> go.Fi
 
     return go.Figure(data=[base_bar, top_bar], layout=layout)
 
+
+def generate_punch_figure(stats: dict, force_type: str) -> go.Figure:
+    """
+    Generates a bar figure for punch statistics.
+    
+    Parameters:
+        stats (dict): Dictionary containing punch statistics (most_recent, average of maximum).
+        force_type (str): Type of punch ('precomp', 'compr', 'eject').
+    
+    Returns:
+        go.Figure: Plotly figure object.
+    """
+
+    def default_figure(title="No data available"):
+        return go.Figure(
+            layout=go.Layout(
+                title=title,
+                plot_bgcolor="#1f2937",
+                paper_bgcolor="#1f2937",
+                font=dict(color="#d1d5db"),
+                xaxis=dict(title="Punch Number", showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+                yaxis=dict(title="Force (N)", showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+                margin=dict(l=40, r=10, t=30, b=30),
+            )
+        )
+
+    # If every list in stats.values() is empty, return an empty figure
+    if not stats or all(len(v) == 0 for v in stats.values()):
+        return default_figure()
+
+    # Validate input
+    if force_type not in {'precomp', 'compr', 'eject'}:
+        return default_figure("Invalid force type specified.")
+
+    colors = {
+        "precomp": '#E91E63',  # Pink
+        "compr": '#1E88E5',      # Blue
+        "eject": '#4CAF50',         # Green
+    }
+
+    base_color = colors.get(force_type, '#38B2AC')
+
+    # Generate x-axis labels
+    x_labels = [str(p) for p in range(1, 9)]
+
+    avg_force = [s[1] for s in stats.values()]
+    prev_force = [s[0] for s in stats.values()]
+
+    # Create bar trace for average maximum force
+    avg_bar = go.Bar(
+        x=x_labels, 
+        y=avg_force, 
+        text=[f"{f:.0f}" for f in avg_force],
+        textposition='outside',
+        name="Avg of recent",
+        marker=dict(color=base_color),
+        hovertemplate="Punch %{x}<br>Avg: %{y:.1f} N<extra></extra>"
+    )
+
+    # Create bar trace for most recent maximum force
+    prev_bar = go.Bar(
+        x=x_labels, 
+        y=prev_force, 
+        text=[f"{f:.0f}" for f in prev_force],
+        textposition='outside',
+        name="Max of recent",
+        marker=dict(color='#F59E0B'),  # Amber color
+        hovertemplate="Punch %{x}<br>Max: %{customdata:.1f} N<extra></extra>",
+        customdata=avg_force,  
+    )
+
+    # Create layout for the figure
+    layout = go.Layout(
+        title=dict(
+            text='Force by Punch Number',
+            font=dict(size=10)  
+        ),
+        xaxis=dict(
+            title=dict(
+                text="Punch Number",
+                font=dict(size=10),  
+                standoff=5, 
+            ),
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.1)',
+            categoryorder='array',
+            categoryarray=x_labels
+        ),
+        yaxis=dict(
+            title=dict(
+                text="Force (N)",
+                font=dict(size=10),  
+                standoff=5,  
+            ),
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.1)',
+            range=[0, max(max(prev_force) * 1.25, 1)] 
+        ),
+        plot_bgcolor='#1f2937',
+        paper_bgcolor='#1f2937',
+        font=dict(color='#d1d5db'),
+        # barmode='stack',
+        uniformtext=dict(
+            mode='hide',
+            minsize=8
+        ),
+        margin=dict(l=40, r=10, t=40, b=25),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=10)  
+        )
+    )
+
+    return go.Figure(data=[avg_bar, prev_bar], layout=layout)
+
 @app.callback(
-    [Output('live-graph', 'figure'),
+    Output('live-graph', 'figure'),
      Output('punch-status-indicator', 'children'),
      Output('pre-compression-stats', 'children'),
      Output('compression-stats', 'children'),
@@ -441,14 +568,16 @@ def generate_punch_stats_figure(force_type: str, data_df: pd.DataFrame) -> go.Fi
      Output('pre-compression-graph', 'figure'),
      Output('compression-graph', 'figure'),
      Output('ejection-graph', 'figure'),
+     Output('punch-precomp-store', 'data'),
      *[Output(f'punch-status-{i}', 'children') for i in range(1, 9)],
-     *[Output(f'punch-status-{i}', 'className') for i in range(1, 9)]],
-    [Input('graph-update', 'n_intervals'),
-     Input("time-window-input", "value"),
-     Input('show-tf-stats', 'value')],
-    [State('folder-path', 'data')]
+     *[Output(f'punch-status-{i}', 'className') for i in range(1, 9)],
+    Input('graph-update', 'n_intervals'),
+    Input('time-window-input', 'value'),
+    Input('show-tf-stats', 'value'),
+    State('folder-path', 'data'),
+    State('punch-precomp-store', 'data'),
 )
-def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
+def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, punch_precomp_store):
     global df, last_db_save_time, last_csv_file, global_start_time, last_file_size, last_row_count
 
     force_columns = {
@@ -833,7 +962,8 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder):
                         xanchor="right",
                         x=1
                     ),
-                    uirevision=f'datetime_{time_window}'  # Change this value when time_window changes
+                    # uirevision=f'datetime_{time_window}'  # Change this value when time_window changes
+                    uirevision=str(n_intervals)
                 )
             }
         else:
