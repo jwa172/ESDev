@@ -46,6 +46,7 @@ app.layout = html.Div([
 
     dcc.Interval(id='graph-update', interval=1000, n_intervals=0, disabled=False),
     dcc.Interval(id='clock-update', interval=1000, n_intervals=0),
+
     html.Div(id='page-content'),
     html.Div(id="dummy-output", style={"display": "none"})
 ])
@@ -234,6 +235,8 @@ def update_clock(n):
     return f"Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
 
+###### THESE FUNCTIONS ARE FOR THE 3 PUNCH GRAPHS ######
+
 def parse_punch_data(df, force_type: str) -> dict:
     """
     Isolates each punch in the data and obtains the maximum force value for each punch type.
@@ -285,7 +288,6 @@ def parse_punch_data(df, force_type: str) -> dict:
 
     return max_dict
 
-
 def update_stats_store(old_stats: dict, addendum: dict, k=3) -> dict:
     """
     Updates the stats store with new data, keeping at most the last `k` entries per key.
@@ -304,7 +306,6 @@ def update_stats_store(old_stats: dict, addendum: dict, k=3) -> dict:
         i: (old_stats.get(str(i), []) + addendum.get(i, []))[-k:]
         for i in range(1, 9)
     }
-
 
 def generate_punch_figure(force_dict: dict, force_type: str) -> go.Figure:
     """
@@ -433,6 +434,7 @@ def generate_punch_figure(force_dict: dict, force_type: str) -> go.Figure:
 
     return go.Figure(data=[avg_bar, prev_bar], layout=layout)
 
+########################################################
 
 @app.callback(
     Output('live-graph', 'figure'),
@@ -546,7 +548,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precom
             except UnicodeDecodeError:
                 new_data = pd.read_csv(latest_csv, encoding='latin1')
             
-            # Parses and updates the pre-compression punch data
+            # Parses and updates the pre-compression punch data (for the figures)
             precomp_maxes = parse_punch_data(new_data, 'precomp')
             precomp_data = update_stats_store(precomp_data, precomp_maxes)
 
@@ -1062,6 +1064,7 @@ def choose_folder(n_clicks, current_folder):
         try:
             # Check if we're running in the context with pywebview
             if pywebview_window is None:
+
                 # Create a temporary file to signal the main process
                 signal_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "select_folder_signal.tmp")
                 with open(signal_file, "w") as f:
@@ -1100,7 +1103,7 @@ def choose_folder(n_clicks, current_folder):
     
 @app.callback(
     Output("selected-folder", "children"),
-    [Input("folder-path", "data")]
+    Input("folder-path", "data")
 )
 def update_selected_folder(folder_path):
     if folder_path:
@@ -1109,8 +1112,8 @@ def update_selected_folder(folder_path):
 
 @app.callback(
     Output("graph-update", "disabled"),
-    [Input("toggle-button", "n_clicks")],
-    [State("graph-update", "disabled")],
+    Input("toggle-button", "n_clicks"),
+    State("graph-update", "disabled"),
     prevent_initial_call=True
 )
 def start_monitoring(n_clicks, is_disabled):
@@ -1122,7 +1125,7 @@ def start_monitoring(n_clicks, is_disabled):
 
 @app.callback(
     Output("graph-update", "disabled", allow_duplicate=True),
-    [Input("stop-button", "n_clicks")],
+    Input("stop-button", "n_clicks"),
     prevent_initial_call=True
 )
 def stop_monitoring(n_clicks):
@@ -1137,29 +1140,30 @@ def run_dash():
 
 def check_for_folder_signal():
     global pywebview_window
-    signal_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "select_folder_signal.tmp")
-    
+
+    base_dir = Path(__file__).resolve().parent
+
+    signal_file = base_dir / "select_folder_signal.tmp"
+    response_file = base_dir / "folder_response.tmp"
+
     while True:
-        if os.path.exists(signal_file):
+
+        if signal_file.exists():
+
             try:
-                os.remove(signal_file)
-                
+                signal_file.unlink() # Remove signal file
                 # Show folder dialog from the main thread
                 paths = pywebview_window.create_file_dialog(
                     dialog_type=webview.FOLDER_DIALOG
                 )
-                
-                # Write response
-                response_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "folder_response.tmp")
-                with open(response_file, "w") as f:
-                    if paths and len(paths) > 0:
-                        f.write(paths[0])
-                    else:
-                        f.write("CANCEL")
+
+                selected = paths[0] if paths and len(paths) > 0 else "CANCEL"
+                response_file.write_text(selected)
             except Exception as e:
-                print(f"Error processing folder signal: {str(e)}")
-                
-        time.sleep(0.5)
+
+                print(f"Error processing folder signal: {e}")
+
+            time.sleep(0.5)
 
 if __name__ == '__main__':
     dash_thread = threading.Thread(target=run_dash, daemon=True)
