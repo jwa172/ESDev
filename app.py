@@ -1152,6 +1152,7 @@ def check_for_folder_signal():
 
             try:
                 signal_file.unlink() # Remove signal file
+
                 # Show folder dialog from the main thread
                 paths = pywebview_window.create_file_dialog(
                     dialog_type=webview.FOLDER_DIALOG
@@ -1163,7 +1164,7 @@ def check_for_folder_signal():
 
                 print(f"Error processing folder signal: {e}")
 
-            time.sleep(0.5)
+        time.sleep(0.5)
 
 if __name__ == '__main__':
     dash_thread = threading.Thread(target=run_dash, daemon=True)
