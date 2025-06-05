@@ -43,9 +43,10 @@ def create_toolbar(folder_path):
                             options=[
                                 {'label': '1 sec', 'value': 1000},
                                 {'label': '10 sec', 'value': 10000},
-                                {'label': '1 min', 'value': 60000},
-                                {'label': '10 min', 'value': 600000},
-                                {'label': '30 min', 'value': 1800000},
+                                {'label': '30 sec', 'value': 30000},
+                                # {'label': '1 min', 'value': 60000},
+                                # {'label': '10 min', 'value': 600000},
+                                # {'label': '30 min', 'value': 1800000},
                             ],
                             value=1000,
                             clearable=False,

@@ -23,6 +23,8 @@ from layout.historical_view import historical_data_layout
 # Configuration settings
 # # Initialize global variables
 df = pd.DataFrame()
+
+df2 = pd.DataFrame()  # Temporary DataFrame while I fix the rest
 last_csv_file = None
 global_start_time = None
 last_file_size = 0
@@ -234,8 +236,112 @@ def update_history_clock(n):
 def update_clock(n):
     return f"Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
+###### HELPER FUNCTIONS FOR MAIN GRAPH #################
 
-###### THESE FUNCTIONS ARE FOR THE 3 PUNCH GRAPHS ######
+# Update the DF buffer with new data, ensuring it does not exceed max_size
+def update_buffer(buffer_df, new_data, max_size) -> pd.DataFrame:
+    if buffer_df is None or buffer_df.empty:
+        return new_data.copy()
+
+    combined_df = pd.concat([buffer_df, new_data], ignore_index=True)
+
+    if len(combined_df) > max_size:
+        combined_df = combined_df.iloc[-max_size:].copy()
+
+    return combined_df
+
+# Generates the force graph figure based on the buffer DataFrame and time window
+def generate_force_fig(buffer_df, time_window, data_cols=None):
+    if data_cols is None:
+        data_cols = ['compr1Data', 'ejectData', 'precompData']
+
+    # Ensure time column is in datetime format
+    buffer_df['actualTime(ms)'] = pd.to_datetime(buffer_df['actualTime(ms)'])
+
+    # Determine time window
+    latest_time = buffer_df['actualTime(ms)'].max()
+    window_start = latest_time - pd.to_timedelta(time_window, unit='ms')
+
+    # Create full time index at 2ms frequency
+    full_time_range = pd.date_range(start=window_start, end=latest_time, freq='2ms')
+
+    # Filter and remove duplicate timestamps
+    filtered_df = (
+        buffer_df[buffer_df['actualTime(ms)'] >= window_start][['actualTime(ms)'] + data_cols]
+        .drop_duplicates(subset='actualTime(ms)', keep='last')  # Keep the last entry for each time
+    )
+
+    # Reindex with zero-fill on the expected time range
+    filtered_df = (
+        filtered_df
+        .set_index('actualTime(ms)')
+        .reindex(full_time_range, fill_value=0)
+        .rename_axis('actualTime(ms)')
+        .reset_index()
+    )
+
+    # Define color palette
+    colors = {
+        'compr1Data': '#1E88E5',
+        'ejectData': '#4CAF50',
+        'precompData': '#E91E63'
+    }
+
+    legend_label = {
+        'compr1Data': 'Compression Force',
+        'ejectData': 'Ejection Force',
+        'precompData': 'Precompression Force'
+    }
+
+    traces = []
+    for col, color in colors.items():
+        # Check if this column should be included
+        if col in data_cols:
+            filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce').fillna(0)
+            if filtered_df[col].sum() == 0:
+                continue  # Skip all-zero traces
+
+            traces.append(
+                go.Scatter(
+                    x=filtered_df['actualTime(ms)'],
+                    y=filtered_df[col],
+                    mode='lines',
+                    name = legend_label.get(col, col),
+                    line=dict(width=2, color=color)
+                )
+            )
+            
+    layout = go.Layout(
+        xaxis=dict(
+            title='Time',
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.1)',
+            tickformat='%H:%M:%S.%f',  # Show time with milliseconds
+        ),
+        yaxis=dict(
+            title='Force (N)',
+            autorange=True,
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.1)'
+        ),
+        margin=dict(l=60, r=10, t=5, b=20),
+        hovermode='closest',
+        plot_bgcolor='#1f2937',
+        paper_bgcolor='#1f2937',
+        font=dict(color='#d1d5db'),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        uirevision=f'relative_{time_window}'
+    )
+
+    return {'data': traces, 'layout': layout}
+
+###### HELPER FUNCTIONS FOR THE 3 PUNCH GRAPHS ######
 
 def parse_punch_data(df, force_type: str) -> dict:
     """
@@ -461,6 +567,8 @@ def generate_punch_figure(force_dict: dict, force_type: str) -> go.Figure:
 def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precomp_data, compr_data, eject_data):
     global df, last_db_save_time, last_csv_file, global_start_time, last_file_size, last_row_count
 
+    global df2
+
     force_columns = {
         'compr1data': 'compression_force_1',
         'compr2data': 'compression_force_2', 
@@ -516,6 +624,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precom
     
     punch_texts = [f"Punch {i}" for i in range(1, 9)]
     punch_classes = ["status-badge badge-normal" for i in range(1, 9)]
+
     #########################################################
 
     # Check if the folder is selected
@@ -547,8 +656,12 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precom
                 new_data = pd.read_csv(latest_csv, encoding='utf-8')
             except UnicodeDecodeError:
                 new_data = pd.read_csv(latest_csv, encoding='latin1')
-            
-            # Parses and updates the pre-compression punch data (for the figures)
+
+            # 1. Update buffer DataFrame df2 for the main figure
+            df2 = update_buffer(df2, new_data, max_size=15000)
+
+
+            # 2. Parse and update the force data (for the 3 figures)
             precomp_maxes = parse_punch_data(new_data, 'precomp')
             precomp_data = update_stats_store(precomp_data, precomp_maxes)
 
@@ -557,6 +670,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precom
 
             eject_maxes = parse_punch_data(new_data, 'eject')
             eject_data = update_stats_store(eject_data, eject_maxes)
+            ######################################################################
 
             
             # Preprocess the new data columns
@@ -654,7 +768,7 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precom
                 
             last_csv_file = latest_csv
             last_file_size = current_file_size
-            last_row_count = len(df)
+            # last_row_count = len(df)
 
             # Make archive if new file is detected and time has passed
             if chosen_folder:
@@ -772,151 +886,13 @@ def update_graphs(n_intervals, time_window, show_tf_stats, chosen_folder, precom
                 window_df = window_df.iloc[indices].copy()
             debug_print(f"Downsampled to {len(window_df)} points for plotting")
 
-        traces = []
-        colors = {
-            'compression_force_1': '#1E88E5',  # Blue
-            'compression_force_2': '#FFC107',  # Amber
-            'ejection_force': '#4CAF50',       # Green
-            'pre_compression_force': '#E91E63'  # Pink
-        }
 
-        for col, color in colors.items():
-            try:
-                if col in window_df.columns:
-                    window_df[col] = pd.to_numeric(window_df[col], errors='coerce').fillna(0)
-                    
-                    if window_df[col].sum() == 0:
-                        continue
-                        
-                    if 'datetime' in window_df.columns and not window_df['datetime'].isna().all():
-                        x_values = window_df['datetime']
-                        traces.append(
-                            go.Scatter(
-                                x=x_values,
-                                y=window_df[col].tolist(),
-                                mode='lines',
-                                name=col.replace('_', ' ').title(),
-                                line=dict(width=2, color=color)
-                            )
-                        )
-                    else:
-                        traces.append(
-                            go.Scatter(
-                                x=window_df['relative_time'].tolist(),
-                                y=window_df[col].tolist(),
-                                mode='lines',
-                                name=col.replace('_', ' ').title(),
-                                line=dict(width=2, color=color)
-                            )
-                        )
-                else:
-                    debug_print(f"Warning: Column {col} not found in window_df")
-            except Exception as e:
-                debug_print(f"Error creating trace for {col}: {str(e)}")
-
-        if 'datetime' in window_df.columns and not window_df['datetime'].isna().all():
-            # Ensure that the datetime column is processed correctly.
-            window_df['datetime'] = pd.to_datetime(window_df['datetime'], errors='coerce')
-            latest_time = window_df['datetime'].max()
-            computed_start = latest_time - pd.Timedelta(seconds=float(time_window))
-            available_start = window_df['datetime'].min()
-            start_time = max(computed_start, available_start)
-            debug_print(f"Latest time: {latest_time}, Computed start: {computed_start}, Available start: {available_start}, Using start_time: {start_time}")
-            
-            window_df = window_df[
-                (window_df['datetime'] >= start_time) & (window_df['datetime'] <= latest_time)].copy()
-    
-            min_time = start_time
-            max_time = latest_time
-            
-            main_figure = {
-                'data': traces,
-                'layout': go.Layout(
-                    xaxis=dict(
-                        title='Time',
-                        type='date',
-                        tickformat='%H:%M:%S.%L',
-                        range=[min_time, max_time],  # Set explicit range based on time window
-                        showgrid=True,
-                        gridcolor='rgba(255,255,255,0.1)'
-                    ),
-                    yaxis=dict(
-                        title='Force (N)', 
-                        autorange=True, 
-                        showgrid=True, 
-                        gridcolor='rgba(255,255,255,0.1)'
-                    ),
-                    margin=dict(l=60, r=10, t=5, b=20),
-                    hovermode='closest',
-                    plot_bgcolor='#1f2937',
-                    paper_bgcolor='#1f2937',
-                    font=dict(color='#d1d5db'),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
-                    ),
-                    # uirevision=f'datetime_{time_window}'  # Change this value when time_window changes
-                    uirevision=str(n_intervals)
-                )
-            }
-        else:
-            # For numeric time axis (relative_time)
-            # Ensure we properly set the x-axis range based on the time window
-            if 'relative_time' in window_df.columns:
-                latest_time = window_df['relative_time'].max()
-            else:
-                latest_time = 0
-        
-            x_max = latest_time
-            x_min = max(0, x_max - float(time_window))  # Ensure we convert time_window to float
-    
-            debug_print(f"Setting relative_time x-axis range: [{x_min} to {x_max}] (window: {time_window})")
-    
-            # Make sure we have a valid range
-            if x_min >= x_max:
-                x_min = max(0, x_max - 0.1)
-    
-            # Re-filter the data to match the exact time window
-            if 'relative_time' in window_df.columns:
-                window_df = window_df[window_df['relative_time'] >= x_min].copy()
-    
-            main_figure = {
-                'data': traces,
-                'layout': go.Layout(
-                    xaxis=dict(
-                        title='Seconds from Start', 
-                        range=[x_min, x_max],  # Use explicit calculated range
-                        showgrid=True, 
-                        gridcolor='rgba(255,255,255,0.1)'
-                    ),
-                    yaxis=dict(
-                        title='Force (N)', 
-                        autorange=True, 
-                        showgrid=True, 
-                        gridcolor='rgba(255,255,255,0.1)'
-                    ),
-                    margin=dict(l=60, r=10, t=5, b=20),
-                    hovermode='closest',
-                    plot_bgcolor='#1f2937',
-                    paper_bgcolor='#1f2937',
-                    font=dict(color='#d1d5db'),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
-                    ),
-                    uirevision=f'relative_{time_window}'  # Change this to force update when time_window changes
-                )
-            }
+        # Generate the main figure with the force traces
+        main_figure = generate_force_fig(df2, time_window)
 
         # Update the hover template for all traces to show more precise time
-        for trace in main_figure['data']:
-            trace.update(hovertemplate='Time: %{x:.3f}s<br>Force: %{y:.2f}N<extra></extra>')
+        # for trace in main_figure['data']:
+        #     trace.update(hovertemplate='Time: %{x:.3f}s<br>Force: %{y:.2f}N<extra></extra>')
     
         def calculate_max_avg(series, window_size=5):
             if len(series) < window_size:
